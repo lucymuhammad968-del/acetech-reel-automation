@@ -1,4 +1,7 @@
-"""Post the next due Reel from queue.csv to Instagram via the Graph API.
+"""Post the next due item from queue.csv to Instagram via the Graph API.
+
+Supports Reels (.mp4/.mov) and single image posts (.jpg/.jpeg).
+Files live in the media/ folder of the repo.
 
 Env vars (GitHub Actions secrets):
   IG_USER_ID       Instagram Business/Creator account ID
@@ -16,7 +19,10 @@ import requests
 
 GRAPH = os.environ.get("IG_GRAPH_BASE") or "https://graph.facebook.com/v21.0"
 QUEUE = "queue.csv"
+MEDIA_DIR = "media"
 FIELDS = ["filename", "caption", "post_at", "status", "media_id"]
+IMAGE_EXT = (".jpg", ".jpeg")
+VIDEO_EXT = (".mp4", ".mov")
 
 
 def load_queue():
@@ -51,10 +57,14 @@ def api(method, path, **params):
     return data
 
 
-def post_reel(video_url, caption):
+def publish(media_url, caption, is_video):
     uid = os.environ["IG_USER_ID"]
-    container = api("POST", f"{uid}/media", media_type="REELS",
-                    video_url=video_url, caption=caption)["id"]
+    if is_video:
+        container = api("POST", f"{uid}/media", media_type="REELS",
+                        video_url=media_url, caption=caption)["id"]
+    else:
+        container = api("POST", f"{uid}/media", image_url=media_url,
+                        caption=caption)["id"]
     print(f"Container created: {container}")
     for _ in range(60):  # up to ~10 minutes
         status = api("GET", container, fields="status_code,status")
@@ -63,10 +73,10 @@ def post_reel(video_url, caption):
         if code == "FINISHED":
             break
         if code in ("ERROR", "EXPIRED"):
-            raise RuntimeError(f"Video processing failed: {status}")
+            raise RuntimeError(f"Media processing failed: {status}")
         time.sleep(10)
     else:
-        raise RuntimeError("Timed out waiting for video processing")
+        raise RuntimeError("Timed out waiting for media processing")
     return api("POST", f"{uid}/media_publish", creation_id=container)["id"]
 
 
@@ -82,19 +92,26 @@ def main():
     repo = os.environ["GITHUB_REPOSITORY"]
     branch = os.environ.get("GITHUB_REF_NAME", "main")
     name = os.path.basename(due["filename"])
-    url = f"https://raw.githubusercontent.com/{repo}/{branch}/videos/{quote(name)}"
-    print(f"Posting {name} from {url}")
+    ext = os.path.splitext(name)[1].lower()
+    if ext not in IMAGE_EXT + VIDEO_EXT:
+        due["status"] = f"failed: unsupported file type {ext}"
+        save_queue(rows)
+        print(due["status"], file=sys.stderr)
+        return 1
+    is_video = ext in VIDEO_EXT
+    url = f"https://raw.githubusercontent.com/{repo}/{branch}/{MEDIA_DIR}/{quote(name)}"
+    print(f"Posting {name} ({'reel' if is_video else 'image'}) from {url}")
 
     due["status"] = "posting"      # mark first: never double-post
     save_queue(rows)
     try:
-        due["media_id"] = post_reel(url, due["caption"])
+        due["media_id"] = publish(url, due["caption"], is_video)
         due["status"] = "posted"
         try:
-            os.remove(os.path.join("videos", name))   # keep repo small
-            print("Deleted video from repo.")
+            os.remove(os.path.join(MEDIA_DIR, name))   # keep repo small
+            print("Deleted file from repo.")
         except OSError as e:
-            print(f"Could not delete video: {e}", file=sys.stderr)
+            print(f"Could not delete file: {e}", file=sys.stderr)
     except Exception as e:
         due["status"] = f"failed: {e}"[:200].replace("\n", " ")
         save_queue(rows)
