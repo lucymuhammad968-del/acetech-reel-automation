@@ -1,4 +1,4 @@
-name: Post Reel
+name: Post to Instagram
 on:
   schedule:
     - cron: "*/15 * * * *"
@@ -17,7 +17,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install requests
-      - name: Post next due Reel to Instagram
+      - name: Post next due item to Instagram
         env:
           IG_USER_ID: ${{ secrets.IG_USER_ID }}
           IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
@@ -27,5 +27,5 @@ jobs:
         run: |
           git config user.name reels-bot
           git config user.email reels-bot@users.noreply.github.com
-          (git add -A queue.csv videos 2>/dev/null || git add -A queue.csv)
+          (git add -A queue.csv media 2>/dev/null || git add -A queue.csv)
           git diff --cached --quiet || (git commit -m "Update queue status" && git push)
