@@ -1,7 +1,7 @@
 name: Post to Instagram
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "11,26,41,56 * * * *"
   workflow_dispatch: {}
 permissions:
   contents: write
